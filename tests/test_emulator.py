@@ -28,7 +28,7 @@ class TestEmulator(unittest.TestCase):
 
     def test_load_config(self):
         # Проверка, что конфигурация загружена правильно
-        self.assertEqual(self.emulator.log_file, self.config['log_file'])
+        self.assertEqual(self.emulator.log_path, self.config['log_file'])
         self.assertEqual(self.emulator.startup_script, self.config['startup_script'])
 
     def test_log_action(self):

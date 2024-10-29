@@ -1,168 +1,159 @@
 import os
-import sys
-import tempfile
+import zipfile
 import yaml
-import csv
-import tkinter as tk
-from tkinter import scrolledtext, messagebox
+from tkinter import Tk, Text, END, Entry, StringVar, Frame, BOTH, LEFT, RIGHT, Y, Scrollbar
 
 
 class ShellEmulator:
     def __init__(self, config_path):
+        # Загрузка конфигурации
         self.load_config(config_path)
-        # Создаем временную директорию для виртуальной файловой системы. После работы файлы будут удалены
-        self.temp_dir = tempfile.TemporaryDirectory()
-        self.current_path = self.temp_dir.name  # Начальный путь — это временная директория
-        self.log_actions = []
-        self.init_gui()
-        self.run_startup_script()
+
+        # Инициализация GUI
+        self.root = Tk()
+        self.root.title("Shell Emulator")
+        self.root.geometry("800x600")
+        self.root.minsize(400, 410)  # Минимальный размер окна для предотвращения исчезновения элементов
+
+        # Основной фрейм
+        self.frame = Frame(self.root)
+        self.frame.pack(expand=True, fill=BOTH)
+
+        # Поле для вывода текста
+        self.text_area = Text(self.frame, wrap='word')
+        self.text_area.pack(expand=True, fill=BOTH, side=LEFT)
+
+        # Полоса прокрутки
+        scrollbar = Scrollbar(self.frame, command=self.text_area.yview)
+        scrollbar.pack(side=RIGHT, fill=Y)
+        self.text_area.config(yscrollcommand=scrollbar.set)
+
+        # Строка ввода команд
+        self.command_var = StringVar()
+        self.command_entry = Entry(self.root, textvariable=self.command_var)
+        self.command_entry.pack(fill='x')
+        self.command_entry.bind("<Return>", self.enter_command)
+
+        # Открываем виртуальную файловую систему
+        self.vfs = zipfile.ZipFile(self.config['vfs_path'], 'a')
+        self.current_directory = 'root/'  # Устанавливаем root как корневую директорию
+
+        # Запуск стартового скрипта
+        self.setup_startup_script()
 
     def load_config(self, config_path):
         with open(config_path, 'r') as f:
-            config = yaml.safe_load(f)
-        self.log_file = config['log_file']
-        self.startup_script = config['startup_script']
+            self.config = yaml.safe_load(f)
 
-    def init_gui(self):
-        self.root = tk.Tk()
-        self.root.title("Shell Emulator")
+    def setup_startup_script(self):
+        startup_script = self.config.get('startup_script')
+        if startup_script:
+            with open(startup_script, 'r') as script:
+                for line in script:
+                    self.execute_command(line.strip())
 
-        self.text_area = scrolledtext.ScrolledText(self.root, wrap=tk.WORD, height=20, width=80, state='disabled')
-        self.text_area.pack(padx=10, pady=10)
+    def enter_command(self, event):
+        command = self.command_var.get().strip()
+        self.append_text(f"> {command}\n")  # Показываем команду в выводе
+        self.execute_command(command)
+        self.command_var.set("")  # Очищаем строку ввода после выполнения
+        return "break"
 
-        self.entry = tk.Entry(self.root, width=80)
-        self.entry.pack(padx=10, pady=(0, 10))
-        self.entry.bind("<Return>", self.handle_command)
-
-        self.display_prompt()
-        self.root.protocol("WM_DELETE_WINDOW", self.on_exit)
-
-    def display_prompt(self):
-        prompt = f"user@emulator:{self.current_path}$ "
-        self.append_text(prompt)
-
-    def append_text(self, text):
-        self.text_area.config(state='normal')
-        self.text_area.insert(tk.END, text)
-        self.text_area.see(tk.END)
-        self.text_area.config(state='disabled')
-
-    def handle_command(self, event):
-        command = self.entry.get().strip()
-        self.entry.delete(0, tk.END)
-        self.append_text(command + "\n")
-        self.log_action(command)
-        if command:
-            self.execute_command(command)
-        self.display_prompt()
-
-    def execute_command(self, command_line):
-        parts = command_line.split()
-        if not parts:
-            return
-        cmd = parts[0]
-        args = parts[1:]
-        commands = {
-            'ls': self.cmd_ls,
-            'cd': self.cmd_cd,
-            'exit': self.cmd_exit,
-            'uname': self.cmd_uname,
-            'mkdir': self.cmd_mkdir,
-            'cat': self.cmd_cat
-        }
-        func = commands.get(cmd, self.cmd_unknown)
-        func(args)
+    def execute_command(self, command):
+        if command.startswith("ls"):
+            self.cmd_ls(command.split()[1:])
+        elif command.startswith("cd"):
+            self.cmd_cd(command.split()[1:])
+        elif command.startswith("mkdir"):
+            self.cmd_mkdir(command.split()[1:])
+        elif command.startswith("cat"):
+            self.cmd_cat(command.split()[1:])
+        elif command.startswith("uname"):
+            self.cmd_uname()
+        elif command.startswith("exit"):
+            self.root.quit()
+        else:
+            self.append_text(f"Command not found: {command}\n")
 
     def cmd_ls(self, args):
-        try:
-            items = os.listdir(self.current_path)
-            self.append_text('  '.join(items) + '\n')
-        except Exception as e:
-            self.append_text(f"ls: {e}\n")
+        contents = [name for name in self.vfs.namelist() if name.startswith(self.current_directory)]
+        if not contents:
+            self.append_text("\n")
+        else:
+            for item in contents:
+                relative_item = os.path.relpath(item, self.current_directory)
+                if '/' not in relative_item.strip('/'):
+                    self.append_text(f"{relative_item}\n")
 
     def cmd_cd(self, args):
         if not args:
             self.append_text("cd: missing operand\n")
             return
-        new_path = os.path.join(self.current_path, args[0])
-        if os.path.isdir(new_path):
-            self.current_path = new_path
-            self.append_text(f"Changed directory to '{args[0]}'\n")
+
+        if args[0] == "..":
+            # Переход на уровень выше
+            if self.current_directory != "root/":
+                self.current_directory = os.path.dirname(self.current_directory.rstrip('/')) + '/'
+                self.append_text("Moved to the parent directory\n")
+            else:
+                self.append_text("Already at the root directory\n")
         else:
-            self.append_text(f"cd: no such file or directory: {args[0]}\n")
+            # Переход в указанную директорию
+            target_directory = os.path.join(self.current_directory, args[0])
+            target_directory = target_directory if target_directory.endswith('/') else f"{target_directory}/"
+
+            if any(item.startswith(target_directory) for item in self.vfs.namelist()):
+                self.current_directory = target_directory
+                self.append_text(f"Changed directory to {args[0]}\n")
+            else:
+                self.append_text(f"cd: no such file or directory: {args[0]}\n")
 
     def cmd_mkdir(self, args):
         if not args:
             self.append_text("mkdir: missing operand\n")
             return
-        new_dir = os.path.join(self.current_path, args[0])
-        try:
-            os.mkdir(new_dir)
-            self.append_text(f"Directory '{args[0]}' created.\n")
-        except FileExistsError:
-            self.append_text(f"mkdir: cannot create directory '{args[0]}': File exists\n")
-        except Exception as e:
-            self.append_text(f"mkdir: {e}\n")
+
+        directory_name = args[0]
+        new_directory_path = os.path.join(self.current_directory, directory_name)
+        new_directory_path = new_directory_path if new_directory_path.endswith('/') else f"{new_directory_path}/"
+
+        if new_directory_path in self.vfs.namelist():
+            self.append_text(f"mkdir: cannot create directory '{directory_name}': File exists\n")
+            return
+
+        new_dir_info = zipfile.ZipInfo(new_directory_path)
+        self.vfs.writestr(new_dir_info, '')
+        self.append_text(f"Directory '{directory_name}' created.\n")
 
     def cmd_cat(self, args):
         if not args:
             self.append_text("cat: missing operand\n")
             return
-        file_path = os.path.join(self.current_path, args[0])
-        if os.path.isfile(file_path):
-            try:
-                with open(file_path, 'r') as f:
-                    content = f.read()
-                self.append_text(content + '\n')
-            except Exception as e:
-                self.append_text(f"cat: {e}\n")
+
+        file_path = os.path.join(self.current_directory, args[0])
+        if file_path in self.vfs.namelist():
+            with self.vfs.open(file_path, 'r') as file:
+                self.append_text(file.read().decode('utf-8') + '\n')
         else:
             self.append_text(f"cat: {args[0]}: No such file\n")
 
-    def cmd_uname(self, args):
+    def cmd_uname(self):
         self.append_text("Linux emulator 5.10.0\n")
 
-    def cmd_exit(self, args):
-        self.save_log()
-        self.temp_dir.cleanup()  # Удаляем временную директорию
-        self.root.destroy()
-        sys.exit(0)
+    def append_text(self, text):
+        self.text_area.insert(END, text)
+        self.text_area.see(END)
 
-    def cmd_unknown(self, args):
-        self.append_text("Unknown command\n")
-
-    def log_action(self, command):
-        self.log_actions.append([command])
-
-    def save_log(self):
-        with open(self.log_file, 'w', newline='') as f:
-            writer = csv.writer(f)
-            writer.writerow(['Command'])
-            writer.writerows(self.log_actions)
-
-    def run_startup_script(self):
-        if not os.path.exists(self.startup_script):
-            return
-        with open(self.startup_script, 'r') as f:
-            commands = f.readlines()
-        for cmd in commands:
-            cmd = cmd.strip()
-            if cmd:
-                self.append_text(f"{cmd}\n")
-                self.log_action(cmd)
-                self.execute_command(cmd)
-
-    def on_exit(self):
-        self.cmd_exit([])
-
-    def run(self):
-        self.root.mainloop()
+    def close(self):
+        self.vfs.close()
+        self.root.quit()
 
 
 if __name__ == "__main__":
-    if len(sys.argv) != 2:
-        print("Usage: python emulator.py <config.yaml>")
-        sys.exit(1)
-    config_path = sys.argv[1]
+    config_path = "config.yaml"  # Укажите путь к файлу конфигурации
     emulator = ShellEmulator(config_path)
-    emulator.run()
+    emulator.root.mainloop()
+    emulator.close()
+
+
+
