@@ -1,0 +1,3 @@
+vfs_path: "vfs.zip"
+log_file: "session_log.csv"
+startup_script: "startup.sh"
