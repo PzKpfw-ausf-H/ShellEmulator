@@ -141,8 +141,10 @@ class ShellEmulator:
         self.append_text("Linux emulator 5.10.0\n")
 
     def append_text(self, text):
+        self.text_area.config(state="normal")  # Временно активируем поле для записи
         self.text_area.insert(END, text)
-        self.text_area.see(END)
+        self.text_area.config(state="disabled")  # Переключаем обратно на "только чтение"
+        self.text_area.see(END)  # Прокручиваем к последней строке
 
     def close(self):
         self.vfs.close()
