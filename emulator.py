@@ -20,7 +20,7 @@ class ShellEmulator:
         self.frame.pack(expand=True, fill=BOTH)
 
         # Поле для вывода текста
-        self.text_area = Text(self.frame, wrap='word')
+        self.text_area = Text(self.frame, wrap='word', bg="black", fg="lime")
         self.text_area.pack(expand=True, fill=BOTH, side=LEFT)
 
         # Полоса прокрутки
