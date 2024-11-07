@@ -71,7 +71,7 @@ class ShellEmulator:
         elif command.startswith("uname"):
             self.cmd_uname()
         elif command.startswith("exit"):
-            self.root.quit()
+            self.cmd_exit()
         else:
             self.append_text(f"Command not found: {command}\n")
 
@@ -130,7 +130,7 @@ class ShellEmulator:
             self.append_text("cat: missing operand\n")
             return
 
-        file_path = os.path.join(self.current_directory, args[0])
+        file_path = os.path.join(self.current_directory, args[0]).replace("\\", "/")  # Корректируем путь
         if file_path in self.vfs.namelist():
             with self.vfs.open(file_path, 'r') as file:
                 self.append_text(file.read().decode('utf-8') + '\n')
@@ -145,6 +145,11 @@ class ShellEmulator:
         self.text_area.insert(END, text)
         self.text_area.config(state="disabled")  # Переключаем обратно на "только чтение"
         self.text_area.see(END)  # Прокручиваем к последней строке
+
+    def cmd_exit(self, args=None):
+        self.append_text("Exiting Shell Emulator.\n")
+        self.root.quit()
+        exit()
 
     def close(self):
         self.vfs.close()
